@@ -1,8 +1,19 @@
+import { PrismaClient } from '@prisma/client';
 import { Candidate } from '../../domain/models/Candidate';
 import { validateCandidateData } from '../validator';
 import { Education } from '../../domain/models/Education';
 import { WorkExperience } from '../../domain/models/WorkExperience';
 import { Resume } from '../../domain/models/Resume';
+
+const prisma = new PrismaClient();
+
+export class NotFoundError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'NotFoundError';
+        Object.setPrototypeOf(this, NotFoundError.prototype);
+    }
+}
 
 export const addCandidate = async (candidateData: any) => {
     try {
@@ -62,4 +73,39 @@ export const findCandidateById = async (id: number): Promise<Candidate | null> =
         console.error('Error al buscar el candidato:', error);
         throw new Error('Error al recuperar el candidato');
     }
+};
+
+export const updateCandidateStage = async (
+    candidateId: number,
+    applicationId: number,
+    interviewStepId: number
+) => {
+    const application = await prisma.application.findUnique({
+        where: { id: applicationId },
+        include: { position: { select: { interviewFlowId: true } } },
+    });
+
+    if (!application || application.candidateId !== candidateId) {
+        throw new NotFoundError('Application not found');
+    }
+
+    const interviewStep = await prisma.interviewStep.findUnique({
+        where: { id: interviewStepId },
+    });
+
+    if (!interviewStep) {
+        throw new Error('Invalid interview step');
+    }
+
+    if (interviewStep.interviewFlowId !== application.position.interviewFlowId) {
+        throw new Error("Interview step does not belong to this position's interview flow");
+    }
+
+    return prisma.application.update({
+        where: { id: applicationId },
+        data: { currentInterviewStep: interviewStepId },
+        include: {
+            interviewStep: { select: { id: true, name: true, orderIndex: true } },
+        },
+    });
 };
